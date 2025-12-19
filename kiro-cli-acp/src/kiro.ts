@@ -8,6 +8,7 @@ export type KiroChatConfig = {
   agent?: string;
   model?: string;
   resume: boolean;
+  verbose: boolean;
   trustAllTools: boolean;
   trustTools?: string;
   wrap: "always" | "never" | "auto";
@@ -31,6 +32,7 @@ export function runKiroChat(
   if (config.resume) args.push("--resume");
   if (config.agent) args.push("--agent", config.agent);
   if (config.model) args.push("--model", config.model);
+  if (config.verbose) args.push("-v");
   if (config.trustAllTools) args.push("--trust-all-tools");
   else if (config.trustTools !== undefined)
     args.push(`--trust-tools=${config.trustTools}`);
@@ -54,6 +56,36 @@ export function runKiroChat(
   let cleanStdout = "";
   let emitting = false;
   let emitCleanIndex = 0;
+  let preludeIndex = 0;
+
+  const shouldEmitPreludeLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith("Running tool ")) return true;
+    if (
+      trimmed.startsWith("- Completed in") ||
+      trimmed.startsWith("- Failed in")
+    )
+      return true;
+    if (/\b(ERROR|WARN|WARNING)\b/.test(trimmed)) return true;
+    return false;
+  };
+
+  const emitPreludeLines = (limit: number, flush: boolean) => {
+    if (limit <= preludeIndex) return;
+    const slice = cleanStdout.slice(preludeIndex, limit);
+    const end = flush ? slice.length : slice.lastIndexOf("\n") + 1;
+    if (end <= 0) return;
+    const chunk = slice.slice(0, end);
+    preludeIndex += end;
+    const lines = chunk.split(/\r?\n/);
+    for (const line of lines) {
+      if (!shouldEmitPreludeLine(line)) continue;
+      const text = line.trimEnd();
+      if (text.length === 0) continue;
+      onEvent({ type: "chunk", text: `${text}\n` });
+    }
+  };
 
   const processStdout = (rawChunk: string, isFinal: boolean) => {
     rawStdout += rawChunk;
@@ -77,6 +109,9 @@ export function runKiroChat(
         if (idx !== -1) markerPos = idx + 1;
       }
 
+      const preludeLimit = markerPos === -1 ? cleanStdout.length : markerPos;
+      emitPreludeLines(preludeLimit, isFinal || markerPos !== -1);
+
       if (markerPos !== -1) {
         emitting = true;
         emitCleanIndex = markerPos + 2;
@@ -95,8 +130,32 @@ export function runKiroChat(
     processStdout(data, false);
   });
 
+  let stderrBuffer = "";
+  const processStderr = (rawChunk: string, isFinal: boolean) => {
+    if (rawChunk.length > 0) stderrBuffer += stripAnsi(rawChunk);
+    const parts = stderrBuffer.split(/\r?\n/);
+    if (!isFinal) {
+      stderrBuffer = parts.pop() ?? "";
+    } else {
+      stderrBuffer = "";
+    }
+    for (const line of parts) {
+      if (!shouldEmitPreludeLine(line)) continue;
+      const text = line.trimEnd();
+      if (text.length === 0) continue;
+      onEvent({ type: "chunk", text: `${text}\n` });
+    }
+    if (isFinal && stderrBuffer.length > 0) {
+      const text = stderrBuffer.trimEnd();
+      if (text.length > 0 && shouldEmitPreludeLine(text)) {
+        onEvent({ type: "chunk", text: `${text}\n` });
+      }
+    }
+  };
+
   child.on("close", (code, signal) => {
     processStdout("", true);
+    processStderr("", true);
 
     if (!emitting) {
       const cleaned = cleanStdout.trimEnd();
@@ -105,7 +164,10 @@ export function runKiroChat(
     onEvent({ type: "exit", code, signal, rawStdout });
   });
 
-  child.stderr.on("data", () => {});
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (data: string) => {
+    processStderr(data, false);
+  });
 
   return child;
 }

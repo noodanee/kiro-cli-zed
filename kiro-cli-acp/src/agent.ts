@@ -42,6 +42,7 @@ type Session = {
   trustAllTools: boolean;
   trustTools?: string;
   wrap: "always" | "never" | "auto";
+  verbose: boolean;
   child?: ReturnType<typeof runKiroChat>;
   modes: {
     currentModeId: string;
@@ -502,6 +503,7 @@ export class KiroAcpAgent implements Agent {
       trustAllTools: envBool("KIRO_ACP_TRUST_ALL_TOOLS"),
       trustTools: envString("KIRO_ACP_TRUST_TOOLS"),
       wrap: (envString("KIRO_ACP_WRAP") as any) ?? "auto",
+      verbose: envBool("KIRO_ACP_VERBOSE"),
       modes,
       models,
       kiroDefaultAgent: defaultAgent,
@@ -563,6 +565,7 @@ export class KiroAcpAgent implements Agent {
             ? undefined
             : session.models.currentModelId,
         resume,
+        verbose: session.verbose,
         trustAllTools: session.trustAllTools,
         trustTools: session.trustTools,
         wrap: session.wrap,
