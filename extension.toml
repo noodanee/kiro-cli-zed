@@ -11,10 +11,10 @@ name = "Kiro CLI"
 icon = "icon/kiro.svg"
 
 [agent_servers.kiro-cli.targets.darwin-aarch64]
-archive = "file:///Users/noodanee/workspace/zed/kiro-cli-zed/dist/kiro-cli-acp-darwin-aarch64.tar.gz"
+archive = "https://github.com/noodanee/kiro-cli-zed/releases/download/v0.0.1/kiro-cli-acp-darwin-aarch64.tar.gz"
 cmd = "node"
 args = ["kiro-cli-acp"]
-sha256 = "61e1d1edffcc5f581b3494d22d9b856746ed524887e9dc655d60230e17567da0"
+sha256 = "95ace3f2438b7a78a7d9d3b808c09cfb5d071b252811610c3ff2a4b276a07a0f"
 
 [agent_servers.kiro-cli.targets.darwin-x86_64]
 archive = "https://github.com/noodanee/kiro-cli-zed/releases/download/v0.0.1/kiro-cli-acp-darwin-x86_64.tar.gz"
