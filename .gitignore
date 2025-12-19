@@ -1,0 +1,4 @@
+.DS_Store
+dist/
+kiro-cli-acp/dist/
+kiro-cli-acp/node_modules/

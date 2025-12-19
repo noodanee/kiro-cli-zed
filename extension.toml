@@ -1,0 +1,35 @@
+id = "kiro-cli-agent"
+name = "Kiro CLI Agent"
+version = "0.0.1"
+schema_version = 1
+authors = ["noodanee"]
+description = "Run Kiro CLI inside Zed via the Agent Client Protocol (ACP)."
+repository = "https://github.com/noodanee/kiro-cli-zed"
+
+[agent_servers.kiro-cli]
+name = "Kiro CLI"
+icon = "icon/kiro.svg"
+
+[agent_servers.kiro-cli.targets.darwin-aarch64]
+archive = "https://github.com/noodanee/kiro-cli-zed/releases/download/v0.0.1/kiro-cli-acp-darwin-aarch64.tar.gz"
+cmd = "node"
+args = ["kiro-cli-acp"]
+sha256 = "29fbc2d1433ab0f1c0454e81700abfb2a5469ba09fe48d637a05f4ca8d8b3d9b"
+
+[agent_servers.kiro-cli.targets.darwin-x86_64]
+archive = "https://github.com/noodanee/kiro-cli-zed/releases/download/v0.0.1/kiro-cli-acp-darwin-x86_64.tar.gz"
+cmd = "node"
+args = ["kiro-cli-acp"]
+sha256 = "cde1dec386cc273fafb019a966ec969591ee4633108e1da9ff4eb898332f92dd"
+
+[agent_servers.kiro-cli.targets.linux-x86_64]
+archive = "https://github.com/noodanee/kiro-cli-zed/releases/download/v0.0.1/kiro-cli-acp-linux-x86_64.tar.gz"
+cmd = "node"
+args = ["kiro-cli-acp"]
+sha256 = "cde1dec386cc273fafb019a966ec969591ee4633108e1da9ff4eb898332f92dd"
+
+[agent_servers.kiro-cli.targets.windows-x86_64]
+archive = "https://github.com/noodanee/kiro-cli-zed/releases/download/v0.0.1/kiro-cli-acp-windows-x86_64.tar.gz"
+cmd = "node"
+args = ["kiro-cli-acp"]
+sha256 = "cde1dec386cc273fafb019a966ec969591ee4633108e1da9ff4eb898332f92dd"

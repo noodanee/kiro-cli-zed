@@ -1,0 +1,21 @@
+{
+  "name": "kiro-cli-acp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.26.0",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "package": "node ./scripts/build.mjs && node ./scripts/package.mjs",
+    "start": "node dist/kiro-cli-acp",
+    "dev": "node ./scripts/build.mjs && node dist/kiro-cli-acp"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.0.3",
+    "esbuild": "0.25.0",
+    "typescript": "5.9.3"
+  }
+}
