@@ -56,8 +56,8 @@ export function runKiroChat(
   const processChunk = (rawChunk: string, isFinal: boolean, buffer: string) => {
     const cleaned = stripAnsi(rawChunk);
     const combined = buffer + cleaned;
-    const endsWithNewline = /\r?\n$/.test(combined);
-    const parts = combined.split(/\r?\n/);
+    const endsWithNewline = /(\r\n|\r|\n)$/.test(combined);
+    const parts = combined.split(/\r\n|\r|\n/);
     let nextBuffer = buffer;
     if (!endsWithNewline) {
       nextBuffer = parts.pop() ?? "";
