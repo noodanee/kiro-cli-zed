@@ -53,34 +53,6 @@ export function runKiroChat(
   let stdoutBuffer = "";
   let stderrBuffer = "";
 
-  const REDACT_KEYS = [
-    "thought",
-    "analysis",
-    "reasoning",
-    "chain_of_thought",
-    "scratchpad",
-  ];
-
-  const redactLine = (line: string) => {
-    let next = line;
-    for (const key of REDACT_KEYS) {
-      const token = `"${key}"`;
-      const tokenIndex = next.indexOf(token);
-      if (tokenIndex === -1) continue;
-      const colonIndex = next.indexOf(":", tokenIndex + token.length);
-      if (colonIndex === -1) continue;
-      const after = next.slice(colonIndex + 1);
-      const wsPrefix = after.match(/^\s*/)?.[0] ?? "";
-      const wsSuffix = after.match(/\s*$/)?.[0] ?? "";
-      const trimmed = after.trimEnd();
-      const hasComma = trimmed.endsWith(",");
-      const comma = hasComma ? "," : "";
-      next = `${next.slice(0, colonIndex + 1)}${wsPrefix}"[redacted]"${comma}${wsSuffix}`;
-      break;
-    }
-    return next;
-  };
-
   const processChunk = (rawChunk: string, isFinal: boolean, buffer: string) => {
     const cleaned = stripAnsi(rawChunk);
     const combined = buffer + cleaned;
@@ -94,10 +66,10 @@ export function runKiroChat(
       nextBuffer = "";
     }
     for (const line of parts) {
-      onEvent({ type: "chunk", text: `${redactLine(line)}\n` });
+      onEvent({ type: "chunk", text: `${line}\n` });
     }
     if (isFinal && nextBuffer.length > 0) {
-      onEvent({ type: "chunk", text: redactLine(nextBuffer) });
+      onEvent({ type: "chunk", text: nextBuffer });
       nextBuffer = "";
     }
     return nextBuffer;
