@@ -495,6 +495,8 @@ export class KiroAcpAgent implements Agent {
       ],
     };
 
+    const verboseEnv = envString("KIRO_ACP_VERBOSE");
+
     this.sessions[sessionId] = {
       cwd: params.cwd,
       started: false,
@@ -503,7 +505,7 @@ export class KiroAcpAgent implements Agent {
       trustAllTools: envBool("KIRO_ACP_TRUST_ALL_TOOLS"),
       trustTools: envString("KIRO_ACP_TRUST_TOOLS"),
       wrap: (envString("KIRO_ACP_WRAP") as any) ?? "auto",
-      verbose: envBool("KIRO_ACP_VERBOSE"),
+      verbose: verboseEnv ? envBool("KIRO_ACP_VERBOSE") : true,
       modes,
       models,
       kiroDefaultAgent: defaultAgent,

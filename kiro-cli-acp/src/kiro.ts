@@ -49,124 +49,75 @@ export function runKiroChat(
     },
   });
 
-  const CARRY_BYTES = 64;
-
   let rawStdout = "";
-  let rawCarry = "";
-  let cleanStdout = "";
-  let emitting = false;
-  let emitCleanIndex = 0;
-  let preludeIndex = 0;
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
 
-  const shouldEmitPreludeLine = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return false;
-    if (trimmed.startsWith("Running tool ")) return true;
-    if (
-      trimmed.startsWith("- Completed in") ||
-      trimmed.startsWith("- Failed in")
-    )
-      return true;
-    if (/\b(ERROR|WARN|WARNING)\b/.test(trimmed)) return true;
-    return false;
+  const REDACT_KEYS = [
+    "thought",
+    "analysis",
+    "reasoning",
+    "chain_of_thought",
+    "scratchpad",
+  ];
+
+  const redactLine = (line: string) => {
+    let next = line;
+    for (const key of REDACT_KEYS) {
+      const token = `"${key}"`;
+      const tokenIndex = next.indexOf(token);
+      if (tokenIndex === -1) continue;
+      const colonIndex = next.indexOf(":", tokenIndex + token.length);
+      if (colonIndex === -1) continue;
+      const after = next.slice(colonIndex + 1);
+      const wsPrefix = after.match(/^\s*/)?.[0] ?? "";
+      const wsSuffix = after.match(/\s*$/)?.[0] ?? "";
+      const trimmed = after.trimEnd();
+      const hasComma = trimmed.endsWith(",");
+      const comma = hasComma ? "," : "";
+      next = `${next.slice(0, colonIndex + 1)}${wsPrefix}"[redacted]"${comma}${wsSuffix}`;
+      break;
+    }
+    return next;
   };
 
-  const emitPreludeLines = (limit: number, flush: boolean) => {
-    if (limit <= preludeIndex) return;
-    const slice = cleanStdout.slice(preludeIndex, limit);
-    const end = flush ? slice.length : slice.lastIndexOf("\n") + 1;
-    if (end <= 0) return;
-    const chunk = slice.slice(0, end);
-    preludeIndex += end;
-    const lines = chunk.split(/\r?\n/);
-    for (const line of lines) {
-      if (!shouldEmitPreludeLine(line)) continue;
-      const text = line.trimEnd();
-      if (text.length === 0) continue;
-      onEvent({ type: "chunk", text: `${text}\n` });
+  const processChunk = (rawChunk: string, isFinal: boolean, buffer: string) => {
+    const cleaned = stripAnsi(rawChunk);
+    const combined = buffer + cleaned;
+    const endsWithNewline = /\r?\n$/.test(combined);
+    const parts = combined.split(/\r?\n/);
+    let nextBuffer = buffer;
+    if (!endsWithNewline) {
+      nextBuffer = parts.pop() ?? "";
+    } else {
+      parts.pop();
+      nextBuffer = "";
     }
-  };
-
-  const processStdout = (rawChunk: string, isFinal: boolean) => {
-    rawStdout += rawChunk;
-
-    rawCarry += rawChunk;
-    const processUpto = isFinal
-      ? rawCarry.length
-      : Math.max(0, rawCarry.length - CARRY_BYTES);
-    const rawToProcess = rawCarry.slice(0, processUpto);
-    rawCarry = rawCarry.slice(processUpto);
-
-    if (rawToProcess.length === 0) return;
-    cleanStdout += stripAnsi(rawToProcess);
-
-    if (!emitting) {
-      let markerPos = -1;
-      if (cleanStdout.startsWith("> ")) {
-        markerPos = 0;
-      } else {
-        const idx = cleanStdout.indexOf("\n> ");
-        if (idx !== -1) markerPos = idx + 1;
-      }
-
-      const preludeLimit = markerPos === -1 ? cleanStdout.length : markerPos;
-      emitPreludeLines(preludeLimit, isFinal || markerPos !== -1);
-
-      if (markerPos !== -1) {
-        emitting = true;
-        emitCleanIndex = markerPos + 2;
-      }
+    for (const line of parts) {
+      onEvent({ type: "chunk", text: `${redactLine(line)}\n` });
     }
-
-    if (emitting) {
-      const next = cleanStdout.slice(emitCleanIndex);
-      emitCleanIndex = cleanStdout.length;
-      if (next.length > 0) onEvent({ type: "chunk", text: next });
+    if (isFinal && nextBuffer.length > 0) {
+      onEvent({ type: "chunk", text: redactLine(nextBuffer) });
+      nextBuffer = "";
     }
+    return nextBuffer;
   };
 
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (data: string) => {
-    processStdout(data, false);
+    rawStdout += data;
+    stdoutBuffer = processChunk(data, false, stdoutBuffer);
   });
 
-  let stderrBuffer = "";
-  const processStderr = (rawChunk: string, isFinal: boolean) => {
-    if (rawChunk.length > 0) stderrBuffer += stripAnsi(rawChunk);
-    const parts = stderrBuffer.split(/\r?\n/);
-    if (!isFinal) {
-      stderrBuffer = parts.pop() ?? "";
-    } else {
-      stderrBuffer = "";
-    }
-    for (const line of parts) {
-      if (!shouldEmitPreludeLine(line)) continue;
-      const text = line.trimEnd();
-      if (text.length === 0) continue;
-      onEvent({ type: "chunk", text: `${text}\n` });
-    }
-    if (isFinal && stderrBuffer.length > 0) {
-      const text = stderrBuffer.trimEnd();
-      if (text.length > 0 && shouldEmitPreludeLine(text)) {
-        onEvent({ type: "chunk", text: `${text}\n` });
-      }
-    }
-  };
-
   child.on("close", (code, signal) => {
-    processStdout("", true);
-    processStderr("", true);
-
-    if (!emitting) {
-      const cleaned = cleanStdout.trimEnd();
-      if (cleaned.trim().length > 0) onEvent({ type: "chunk", text: cleaned });
-    }
+    stdoutBuffer = processChunk("", true, stdoutBuffer);
+    stderrBuffer = processChunk("", true, stderrBuffer);
     onEvent({ type: "exit", code, signal, rawStdout });
   });
 
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (data: string) => {
-    processStderr(data, false);
+    stderrBuffer = processChunk(data, false, stderrBuffer);
   });
 
   return child;
