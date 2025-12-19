@@ -530,23 +530,156 @@ export class KiroAcpAgent implements Agent {
     const resume = session.started;
 
     let sentAny = false;
-    const send = async (text: string) => {
-      if (session.cancelled) return;
+    let sendChain = Promise.resolve();
+
+    const sendUpdate = (update: SessionNotification["update"]) => {
+      if (session.cancelled) return sendChain;
       sentAny = true;
-      const notification: SessionNotification = {
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text },
+      sendChain = sendChain
+        .then(() =>
+          this.client.sessionUpdate({
+            sessionId: params.sessionId,
+            update,
+          }),
+        )
+        .catch(() => {});
+      return sendChain;
+    };
+
+    const sendText = (text: string) =>
+      sendUpdate({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      });
+
+    const sendThought = (text: string) =>
+      sendUpdate({
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text },
+      });
+
+    const toolStartRe =
+      /^I will run the following command:\s*(.+?)\s*\(using tool:\s*([^)]+)\)\s*$/;
+    const toolDoneRe = /- Completed in /;
+    const thoughtPrefixes = [
+      "Thought:",
+      "Reasoning:",
+      "Chain of Thought:",
+      "Chain-of-thought:",
+      "Scratchpad:",
+    ];
+
+    let toolSeq = 0;
+    let activeTool:
+      | {
+          id: string;
+          kind: "execute" | "other";
+          title: string;
+          rawInput: string;
+          output: string[];
+        }
+      | null = null;
+    let lineBuffer = "";
+
+    const toolContent = () => {
+      if (!activeTool || activeTool.output.length === 0) return undefined;
+      return [
+        {
+          type: "content",
+          content: { type: "text", text: activeTool.output.join("\n") },
         },
-      };
-      await this.client.sessionUpdate(notification);
+      ];
+    };
+
+    const sendToolCall = () => {
+      if (!activeTool) return;
+      void sendUpdate({
+        sessionUpdate: "tool_call",
+        toolCall: {
+          toolCallId: activeTool.id,
+          title: activeTool.title,
+          kind: activeTool.kind,
+          status: "in_progress",
+          rawInput: activeTool.rawInput,
+        },
+      });
+    };
+
+    const sendToolUpdate = (status?: "in_progress" | "completed" | "failed") => {
+      if (!activeTool) return;
+      const update: {
+        toolCallId: string;
+        status?: "in_progress" | "completed" | "failed";
+        content?: { type: "content"; content: { type: "text"; text: string } }[];
+        rawOutput?: string;
+      } = { toolCallId: activeTool.id };
+      if (status) update.status = status;
+      const content = toolContent();
+      if (content) update.content = content;
+      if (activeTool.output.length > 0) {
+        update.rawOutput = activeTool.output.join("\n");
+      }
+      void sendUpdate({
+        sessionUpdate: "tool_call_update",
+        toolCall: update,
+      });
+    };
+
+    const handleLine = (line: string) => {
+      const toolMatch = line.match(toolStartRe);
+      if (toolMatch) {
+        if (activeTool) {
+          sendToolUpdate("completed");
+        }
+        const command = toolMatch[1].trim();
+        const toolName = toolMatch[2].trim();
+        const id = `tool-${Date.now()}-${++toolSeq}`;
+        const kind = toolName === "shell" ? "execute" : "other";
+        activeTool = {
+          id,
+          kind,
+          title: toolName ? `${toolName}: ${command}` : command,
+          rawInput: command,
+          output: [],
+        };
+        sendToolCall();
+        return;
+      }
+
+      if (activeTool) {
+        if (toolDoneRe.test(line)) {
+          sendToolUpdate("completed");
+          activeTool = null;
+          return;
+        }
+        activeTool.output.push(line);
+        sendToolUpdate("in_progress");
+        return;
+      }
+
+      for (const prefix of thoughtPrefixes) {
+        if (line.startsWith(prefix)) {
+          void sendThought(`${line}\n`);
+          return;
+        }
+      }
+
+      void sendText(`${line}\n`);
+    };
+
+    const handleChunk = (text: string) => {
+      lineBuffer += text;
+      const parts = lineBuffer.split(/\r\n|\r|\n/);
+      lineBuffer = parts.pop() ?? "";
+      for (const part of parts) {
+        handleLine(part);
+      }
     };
 
     if (!session.preflightOk) {
       const ready = await ensureKiroReady(session, kiroCli);
       if (!ready.ok) {
-        await send(ready.message);
+        await sendText(ready.message);
         return { stopReason: "end_turn" };
       }
     }
@@ -574,7 +707,7 @@ export class KiroAcpAgent implements Agent {
       },
       (event) => {
         if (event.type === "chunk") {
-          void send(event.text);
+          handleChunk(event.text);
         }
       },
     );
@@ -589,6 +722,15 @@ export class KiroAcpAgent implements Agent {
     });
 
     session.child = undefined;
+    if (lineBuffer.length > 0) {
+      handleLine(lineBuffer);
+      lineBuffer = "";
+    }
+    if (activeTool) {
+      sendToolUpdate(exit.code === 0 ? "completed" : "failed");
+      activeTool = null;
+    }
+    await sendChain;
 
     if (session.cancelled) return { stopReason: "cancelled" };
 
@@ -600,7 +742,7 @@ export class KiroAcpAgent implements Agent {
     }
 
     if (exit.code !== 0) {
-      await send(`\n(kiro-cli 退出码: ${exit.code ?? "?"})\n`);
+      await sendText(`\n(kiro-cli 退出码: ${exit.code ?? "?"})\n`);
     }
 
     session.started = true;
